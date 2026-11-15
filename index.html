@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex, nofollow">   <!-- versione di prova: non compare su Google -->
+  <meta name="robots" content="noindex, nofollow">   <!-- area riservata: non compare su Google -->
   <title>Area clienti | Muoversi con Me</title>
   <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="img/favicon-32.png" type="image/png" sizes="32x32">
@@ -14,15 +14,14 @@
 
   <!--
     ================================================================
-    AREA CLIENTI · VERSIONE DI PROVA · progetto separato dal sito vetrina
-    - Indirizzo: https://app.muoversiconme.it (separata dal sito vetrina, nessun link tra i due)
-    - Utenti di prova: PAKE / 1234 (cliente) e ALE / 4321 (coach).
-    - Tutto resta nel browser di chi la usa (localStorage per scheda e chat,
-      IndexedDB per i video): niente server, niente dati online.
-    - Per provarla: entra come PAKE, carica un video e scrivi in chat;
-      poi esci ed entra come ALE (oppure apri una seconda scheda del browser).
-    - NON è sicura per dati veri: le password sono scritte qui sotto nel codice.
-      Nella versione definitiva login, video e chat passeranno da un server (es. Supabase).
+    AREA CLIENTI · BETA · progetto separato dal sito vetrina
+    - Login, schede, video e chat passano da Supabase (progetto muoversiconme-app).
+    - Gli utenti entrano con NOME UTENTE e password: dietro c'è un'email interna
+      nomeutente@utenti.muoversiconme.it che nessuno vede (vedi DOMINIO_UTENTI).
+    - Chi vede cosa lo decidono le regole del database (supabase/*.sql):
+      il cliente solo i suoi dati, l'allenatore solo i suoi clienti.
+    - La chiave qui sotto è quella PUBBLICA (publishable): può stare nella pagina.
+      La secret / service_role NON va mai messa qui.
     ================================================================
   -->
 
@@ -263,9 +262,42 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
     }
+
+    /* ====== AGGIUNTE BETA SUPABASE ====== */
+    .caricamento { min-height: 100vh; min-height: 100svh; display: grid; place-items: center; gap: 14px; align-content: center; color: var(--tenue); font-size: .9rem; }
+    .caricamento .rotella { width: 28px; height: 28px; border-width: 3px; }
+    .vuoto { padding: 28px 0; color: var(--tenue); }
+    .vuoto strong { display: block; color: var(--testo); font-weight: 400; margin-bottom: 4px; }
+    .iniziale.grande { width: 44px; height: 44px; font-size: 1.1rem; }
+    .testa-azioni { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+    /* editor della scheda (allenatore) */
+    .editor { display: grid; gap: 18px; }
+    .editor-generale { display: grid; grid-template-columns: 140px 1fr; gap: 12px; }
+    .editor .campo input, .editor .campo textarea { width: 100%; padding: 10px 12px; border-radius: 4px; border: 1px solid var(--linea); background: var(--sfondo);
+      color: var(--testo); font-size: .95rem; }
+    .editor .campo input:focus, .editor .campo textarea:focus { outline: none; border-color: var(--colore-principale); }
+    .editor-righe { display: grid; gap: 10px; list-style: none; }
+    .editor-riga { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px; border: 1px solid var(--linea);
+      border-radius: 6px; background: rgba(255,255,255,.02); }
+    .editor-riga .num { font-family: var(--font-titoli); color: var(--colore-principale); font-size: 1.25rem; line-height: 1; padding-top: 30px; }
+    .editor-campi { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+    .editor-campi .largo { grid-column: 1 / -1; }
+    .editor-tasti { display: flex; flex-direction: column; gap: 4px; padding-top: 24px; }
+    .tasto { width: 34px; height: 30px; border: 0; border-radius: 4px; background: var(--superficie-2); color: var(--tenue); font-size: .9rem; }
+    .tasto:hover:not(:disabled) { background: var(--colore-principale); color: var(--sfondo); }
+    .tasto:disabled { opacity: .3; cursor: not-allowed; }
+    .tasto.elimina:hover:not(:disabled) { background: #ff9b8a; }
+    .editor-fondo { display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+    @container (max-width: 640px) {
+      .editor-generale, .editor-campi { grid-template-columns: 1fr; }
+      .editor-riga { grid-template-columns: minmax(0, 1fr) auto; }
+      .editor-riga .num { display: none; }
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 </head>
-<body data-vista="login">
+<body data-vista="carico">
 
   <!-- ================= BARRA IN ALTO ================= -->
   <header>
@@ -277,35 +309,29 @@
     </div>
   </header>
 
-
   <main>
+    <!-- ================= 0. CARICAMENTO ================= -->
+    <section class="caricamento" id="vista-carico"><span class="rotella" aria-hidden="true"></span><span>Caricamento…</span></section>
+
     <!-- ================= 1. ACCESSO ================= -->
-    <section class="login" id="vista-login" aria-labelledby="titolo-login">
+    <section class="login" id="vista-login" hidden aria-labelledby="titolo-login">
       <div class="login-scheda">
         <p class="occhiello">Area riservata</p>
         <h1 id="titolo-login">La tua area <em>clienti.</em></h1>
-        <p class="intro">Entra per vedere la tua scheda, caricare i video degli esercizi e scrivere al tuo coach.</p>
+        <p class="intro">Entra con il nome utente e la password che ti ha dato il tuo allenatore.</p>
 
         <form class="modulo-login" id="modulo-login" novalidate>
           <label class="campo">Nome utente
-            <input id="campo-utente" name="utente" autocomplete="username" autocapitalize="characters" spellcheck="false" required>
+            <input id="campo-utente" name="utente" autocomplete="username" autocapitalize="none" spellcheck="false" required>
           </label>
           <label class="campo campo-password">Password
             <input id="campo-password" name="password" type="password" autocomplete="current-password" required>
             <button type="button" class="mostra" id="mostra-password" aria-pressed="false">Mostra</button>
           </label>
           <p class="errore" id="errore-login" role="alert"></p>
-          <button type="submit" class="bottone">Accedi&nbsp;&nbsp;→</button>
+          <button type="submit" class="bottone" id="bottone-accedi">Accedi&nbsp;&nbsp;→</button>
         </form>
-
-        <!-- Solo per la prova: si può togliere quando si mostra al cliente -->
-        <details class="prova-info">
-          <summary>Credenziali di prova</summary>
-          <ul>
-            <li>Cliente: <code>PAKE</code> · <code>1234</code></li>
-            <li>Coach: <code>ALE</code> · <code>4321</code></li>
-          </ul>
-        </details>
+        <p class="prova-info">Hai dimenticato la password? Chiedila al tuo allenatore.</p>
       </div>
     </section>
 
@@ -314,56 +340,27 @@
       <div class="pannello">
         <div class="pannello-testa">
           <div>
-            <p class="occhiello">Ciao Pake · Settimana 3</p>
+            <p class="occhiello" id="cli-occhiello"></p>
             <h1>La tua scheda <em>della settimana.</em></h1>
           </div>
           <div class="riepilogo" id="riepilogo-cliente"></div>
         </div>
-        <p class="obiettivo">Obiettivo: <mark>salire le scale senza fiatone</mark></p>
-        <table class="tabella">
-          <thead><tr><th scope="col">Esercizio</th><th scope="col">Serie × rip.</th><th scope="col">Recupero</th><th scope="col">Il tuo video</th></tr></thead>
-          <tbody id="righe-cliente"></tbody>
-        </table>
-        <p class="nota-prova">Registrati di lato, inquadrando tutto il corpo. Versione di prova: video e messaggi restano solo in questo browser.</p>
+        <p class="obiettivo" id="cli-obiettivo" hidden></p>
+        <div id="scheda-cliente"></div>
+        <p class="nota-prova">Registrati di lato, inquadrando tutto il corpo. Clip brevi (15–40 secondi), massimo 50 MB per video.</p>
       </div>
-      <aside class="chat" id="chat-cliente" aria-label="Chat con il coach"></aside>
+      <aside class="chat" id="chat-cliente" aria-label="Chat con l'allenatore"></aside>
     </section>
 
-    <!-- ================= 3. VISTA COACH ================= -->
-    <section class="cruscotto" id="vista-coach" hidden aria-label="Area coach">
+    <!-- ================= 3. VISTA ALLENATORE ================= -->
+    <section class="cruscotto" id="vista-coach" hidden aria-label="Area allenatore">
       <div class="pannello">
         <div class="coach-griglia">
-          <nav class="clienti-lista" aria-label="Clienti">
-            <p class="occhiello">I tuoi clienti</p>
-            <button type="button" class="cliente-voce attivo" aria-current="true">
-              <span class="iniziale">P</span>
-              <span>Pake<small>Settimana 3</small></span>
-              <span class="conta" id="conta-pake" hidden></span>
-            </button>
-            <button type="button" class="aggiungi-cliente" disabled title="Nella prossima versione">+ Nuovo cliente</button>
-          </nav>
-
-          <div class="dettaglio">
-            <div class="pannello-testa">
-              <div>
-                <p class="occhiello">Cliente · Progetto Autonomia</p>
-                <h1>Pake, <em>settimana 3.</em></h1>
-              </div>
-              <div class="riepilogo" id="riepilogo-coach"></div>
-            </div>
-            <p class="obiettivo">Obiettivo: <mark>salire le scale senza fiatone</mark></p>
-            <table class="tabella">
-              <thead><tr><th scope="col">Esercizio</th><th scope="col">Prescrizione</th><th scope="col">Video di Pake</th><th scope="col">Il tuo feedback</th></tr></thead>
-              <tbody id="righe-coach"></tbody>
-            </table>
-            <div class="azzera">
-              <span>Versione di prova: i dati restano solo in questo browser.</span>
-              <button type="button" class="link-testo" id="azzera">Azzera la prova</button>
-            </div>
-          </div>
+          <nav class="clienti-lista" id="lista-clienti" aria-label="I tuoi clienti"></nav>
+          <div class="dettaglio" id="dettaglio-coach"></div>
         </div>
       </div>
-      <aside class="chat" id="chat-coach" aria-label="Chat con Pake"></aside>
+      <aside class="chat" id="chat-coach" aria-label="Chat con il cliente"></aside>
     </section>
   </main>
 
@@ -383,85 +380,24 @@
   <script>
   'use strict';
 
-  /* ===================== DATI DI PROVA ===================== */
-  // Utenti di prova (solo per la demo: nella versione vera il login passa da un server)
-  const UTENTI = {
-    PAKE: { password: '1234', ruolo: 'cliente', nome: 'Pake', ruoloTesto: 'Cliente' },
-    ALE:  { password: '4321', ruolo: 'coach', nome: 'Alessandro', ruoloTesto: 'Coach' },
-  };
-  const CLIENTE = 'PAKE', COACH = 'ALE';
+  /* ===================== COLLEGAMENTO SUPABASE ===================== */
+  const SUPABASE_URL = 'https://usccwerixtisdrawxyeh.supabase.co';
+  const SUPABASE_CHIAVE = 'sb_publishable_GnCYVEXUUb55JGq_jVwSfA_lioi25Ii';   // chiave PUBBLICA: può stare qui
+  const DOMINIO_UTENTI = 'utenti.muoversiconme.it';   // "pake" → pake@utenti.muoversiconme.it
+  const MAX_VIDEO = 50 * 1024 * 1024;                 // limite del piano gratuito di Supabase
 
-  // Scheda della settimana: cambia qui esercizi, dosi e note
-  const ESERCIZI = [
-    { id: 'mobilita', nome: "Mobilità dell'anca", nota: 'Movimento lento e controllato, senza forzare', serie: '2 × 10 per lato', recupero: '30"' },
-    { id: 'squat',    nome: 'Squat al muro', nota: 'Schiena appoggiata, ginocchia in linea con i piedi', serie: '3 × 10', recupero: '60"' },
-    { id: 'affondi',  nome: 'Affondi indietro', nota: 'Busto dritto, scendi finché il ginocchio sfiora terra', serie: '3 × 8 per gamba', recupero: '60"' },
-    { id: 'ponte',    nome: 'Ponte glutei', nota: 'Spingi con i talloni e tieni 2" in alto', serie: '3 × 12', recupero: '45"' },
-    { id: 'plank',    nome: 'Plank sulle ginocchia', nota: 'Addome attivo, respira normalmente', serie: '3 × 20"', recupero: '40"' },
-    { id: 'respiro',  nome: 'Respirazione diaframmatica', nota: 'Sdraiato, una mano sulla pancia', serie: "5'", recupero: '—' },
-  ];
-  const nomeEsercizio = id => (ESERCIZI.find(e => e.id === id) || {}).nome || id;
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_CHIAVE);
 
-  /* ===================== SALVATAGGIO NEL BROWSER ===================== */
-  const CHIAVE = 'mcm-area-clienti-prova-v1';
-  const statoIniziale = () => {
-    const ieri = Date.now() - 26 * 3600e3;
-    return { versione: 1, video: {}, messaggi: [
-      { id: 'm1', da: COACH, testo: 'Ciao Pake! Ti ho preparato la scheda della settimana 3: lavoriamo su gambe e core.', il: ieri },
-      { id: 'm2', da: COACH, testo: "Quando fai squat e affondi, registrati di lato e carica il video qui: così controllo l'esecuzione.", il: ieri + 60e3 },
-    ] };
-  };
-  let statoInMemoria = null;
-  const leggiStato = () => {
-    try {
-      const s = JSON.parse(localStorage.getItem(CHIAVE));
-      if (s && s.versione === 1) return (statoInMemoria = s);
-    } catch (e) { /* storage non disponibile: si usa la memoria */ }
-    return statoInMemoria || (statoInMemoria = statoIniziale());
-  };
-  const salvaStato = s => {
-    statoInMemoria = s;
-    try { localStorage.setItem(CHIAVE, JSON.stringify(s)); } catch (e) { /* resta in memoria */ }
-  };
+  /* ===================== STATO DELL'APP ===================== */
+  let io = null;            // il mio profilo { id, nome, ruolo, settimana, obiettivo, coach_id }
+  let allenatore = null;    // per il cliente: { id, nome }
+  let clienti = [];         // per l'allenatore: i suoi clienti
+  let daVederePer = {};     // per l'allenatore: video da vedere per cliente
+  let clienteAttivo = null; // di chi sto guardando scheda, video e chat
+  let esercizi = [];
+  let videoPer = {};        // esercizio_id → riga video
+  let messaggi = [];
   let canale = null;
-  try { canale = new BroadcastChannel('mcm-area-clienti'); } catch (e) {}
-  const modifica = fn => { const s = leggiStato(); fn(s); salvaStato(s); disegna(); try { canale && canale.postMessage('aggiornato'); } catch (e) {} };
-
-  // Sessione: per ogni scheda del browser (così si possono aprire cliente e coach in due schede)
-  let sessioneInMemoria = null;
-  const sessione = {
-    leggi() { try { return sessionStorage.getItem('mcm-utente'); } catch (e) { return sessioneInMemoria; } },
-    scrivi(v) {
-      sessioneInMemoria = v;
-      try { v ? sessionStorage.setItem('mcm-utente', v) : sessionStorage.removeItem('mcm-utente'); } catch (e) {}
-    },
-  };
-
-  // Video: salvati in IndexedDB (i file sono troppo grandi per localStorage)
-  const archivioVideo = (() => {
-    const memoria = new Map();
-    let apertura = null;
-    const apri = () => apertura || (apertura = new Promise((ok, ko) => {
-      if (!('indexedDB' in window)) return ko(new Error('IndexedDB assente'));
-      const r = indexedDB.open('mcm-area-clienti-prova', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('video');
-      r.onsuccess = () => ok(r.result);
-      r.onerror = () => ko(r.error);
-    }));
-    const operazione = async (modo, fn) => {
-      const db = await apri();
-      return new Promise((ok, ko) => {
-        const t = db.transaction('video', modo), req = fn(t.objectStore('video'));
-        t.oncomplete = () => ok(req && req.result);
-        t.onerror = () => ko(t.error);
-      });
-    };
-    return {
-      async metti(k, file) { try { await operazione('readwrite', s => s.put(file, k)); } catch (e) { memoria.set(k, file); } },
-      async prendi(k) { try { return (await operazione('readonly', s => s.get(k))) || memoria.get(k); } catch (e) { return memoria.get(k); } },
-      async svuota() { memoria.clear(); try { await operazione('readwrite', s => s.clear()); } catch (e) {} },
-    };
-  })();
 
   /* ===================== UTILITÀ ===================== */
   const $ = id => document.getElementById(id);
@@ -470,15 +406,15 @@
     for (const [k, v] of Object.entries(prop || {})) {
       if (v == null || v === false) continue;
       if (k === 'class') el.className = v;
-      else if (k === 'dataset') Object.assign(el.dataset, v);
       else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
       else if (k === 'svg') el.innerHTML = v;            // solo icone scritte qui, mai testo degli utenti
+      else if (k === 'value') el.value = v;
       else el.setAttribute(k, v === true ? '' : v);
     }
     for (const f of figli.flat()) if (f != null && f !== false) el.append(f instanceof Node ? f : String(f));
     return el;
   };
-  const nuovoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const ok = ({ data, error }) => { if (error) throw error; return data; };
   const formattaOra = t => {
     const d = new Date(t), oggi = new Date(), ieri = new Date(); ieri.setDate(oggi.getDate() - 1);
     const hhmm = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -488,11 +424,14 @@
   };
   const formattaDurata = s => { if (!s || !isFinite(s)) return ''; const t = Math.round(s); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
   const formattaPeso = b => b >= 1e6 ? (b / 1e6).toFixed(b >= 1e8 ? 0 : 1).replace('.', ',') + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
+  const iniziale = nome => (nome || '?').trim().charAt(0).toUpperCase() || '?';
+  const nomeEsercizio = id => (esercizi.find(e => e.id === id) || {}).nome || 'esercizio';
   const ICONE = {
     carica: '<svg class="icona" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>',
     play: '<svg class="icona" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>',
     spunta: '<svg class="icona" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     orologio: '<svg class="icona" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+    matita: '<svg class="icona" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>',
     invia: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   };
   const icona = nome => crea('span', { svg: ICONE[nome], 'aria-hidden': 'true', style: 'display:contents' });
@@ -500,28 +439,42 @@
   let timerAvviso;
   const avvisa = testo => {
     const a = $('avviso'); a.textContent = testo; a.classList.add('visibile');
-    clearTimeout(timerAvviso); timerAvviso = setTimeout(() => a.classList.remove('visibile'), 2600);
+    clearTimeout(timerAvviso); timerAvviso = setTimeout(() => a.classList.remove('visibile'), 3200);
   };
+  const errore = (e, cosa) => { console.error(cosa, e); avvisa((cosa ? cosa + ': ' : '') + 'qualcosa non ha funzionato, riprova'); };
 
   /* ===================== OROLOGIO ===================== */
   const aggiornaOra = () => $('ora').textContent = new Date().toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome' });
   aggiornaOra(); setInterval(aggiornaOra, 1000);
 
+  /* ===================== VISTE ===================== */
+  function mostraVista(vista) {
+    document.body.dataset.vista = vista;
+    for (const v of ['carico', 'login', 'cliente', 'coach']) $('vista-' + v).hidden = v !== vista;
+    const dentro = vista === 'cliente' || vista === 'coach';
+    $('orologio').hidden = dentro;
+    $('utente').hidden = !dentro;
+    document.title = (vista === 'coach' ? 'Area allenatore' : vista === 'cliente' ? 'La tua scheda' : 'Area clienti') + ' | Muoversi con Me';
+  }
+
   /* ===================== ACCESSO ===================== */
-  $('modulo-login').addEventListener('submit', e => {
+  const emailDa = nomeUtente => nomeUtente.trim().toLowerCase().replace(/\s+/g, '') + '@' + DOMINIO_UTENTI;
+
+  $('modulo-login').addEventListener('submit', async e => {
     e.preventDefault();
-    const nome = $('campo-utente').value.trim().toUpperCase();
-    const password = $('campo-password').value;
-    const utente = UTENTI[nome];
-    if (utente && utente.password === password) {
-      sessione.scrivi(nome);
-      $('campo-utente').value = ''; $('campo-password').value = ''; $('errore-login').textContent = '';
-      disegna(); window.scrollTo(0, 0);
-      avvisa(utente.ruolo === 'coach' ? 'Ciao Alessandro' : 'Ciao Pake, bentornato');
-    } else {
-      $('errore-login').textContent = nome || password ? 'Nome utente o password non corretti.' : 'Inserisci nome utente e password.';
+    const nome = $('campo-utente').value.trim(), password = $('campo-password').value;
+    const sbaglia = testo => {
+      $('errore-login').textContent = testo;
       const f = $('modulo-login'); f.classList.remove('scuoti'); void f.offsetWidth; f.classList.add('scuoti');
-    }
+    };
+    if (!nome || !password) return sbaglia('Inserisci nome utente e password.');
+    const bottone = $('bottone-accedi'); bottone.disabled = true;
+    const { error } = await sb.auth.signInWithPassword({ email: nome.includes('@') ? nome : emailDa(nome), password });
+    bottone.disabled = false;
+    if (error) return sbaglia(/invalid/i.test(error.message) ? 'Nome utente o password non corretti.' : 'Accesso non riuscito, riprova tra poco.');
+    $('campo-password').value = ''; $('errore-login').textContent = '';
+    await entra();
+    if (io) avvisa('Ciao ' + io.nome);
   });
   $('mostra-password').addEventListener('click', e => {
     const campo = $('campo-password'), visibile = campo.type === 'password';
@@ -529,254 +482,485 @@
     e.currentTarget.textContent = visibile ? 'Nascondi' : 'Mostra';
     e.currentTarget.setAttribute('aria-pressed', visibile);
   });
-  $('esci').addEventListener('click', () => { sessione.scrivi(null); disegna(); window.scrollTo(0, 0); });
+  $('esci').addEventListener('click', async () => { await sb.auth.signOut(); esci(); });
+
+  function esci() {
+    if (canale) { sb.removeChannel(canale); canale = null; }
+    io = allenatore = clienteAttivo = null; clienti = []; esercizi = []; videoPer = {}; messaggi = [];
+    inModificaScheda = false; bozze.clear(); inModifica.clear(); contati.clear();
+    for (const box of [$('chat-cliente'), $('chat-coach')]) { box.replaceChildren(); delete box.dataset.pronta; }
+    mostraVista('login'); window.scrollTo(0, 0);
+  }
+
+  // Dopo l'accesso: legge il profilo e apre la vista giusta
+  async function entra() {
+    try {
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) return esci();
+      io = ok(await sb.from('profili').select('*').eq('id', user.id).maybeSingle());
+      if (!io) { await sb.auth.signOut(); esci(); $('errore-login').textContent = 'Account non ancora attivo: scrivi al tuo allenatore.'; return; }
+      $('utente-nome').textContent = io.nome || 'Ciao';
+      $('utente-ruolo').textContent = '· ' + (io.ruolo === 'coach' ? 'Allenatore' : 'Cliente');
+      if (io.ruolo === 'coach') {
+        await caricaClienti();
+        const ricordato = (() => { try { return localStorage.getItem('mcm-cliente-attivo'); } catch (e) { return null; } })();
+        clienteAttivo = (clienti.find(c => c.id === ricordato) || clienti[0] || {}).id || null;
+      } else {
+        allenatore = io.coach_id ? ok(await sb.from('profili').select('id, nome').eq('id', io.coach_id).maybeSingle()) : null;
+        clienteAttivo = io.id;
+      }
+      mostraVista(io.ruolo === 'coach' ? 'coach' : 'cliente');
+      await caricaDatiCliente();
+      ascolta();
+      window.scrollTo(0, 0);
+    } catch (e) {
+      errore(e, 'Caricamento');
+      mostraVista('login');
+    }
+  }
+
+  /* ===================== LETTURA DATI ===================== */
+  async function caricaClienti() {
+    clienti = ok(await sb.from('profili').select('id, nome, settimana, obiettivo').eq('coach_id', io.id).order('nome'));
+    await contaDaVedere();
+  }
+  async function contaDaVedere() {
+    const righe = ok(await sb.from('video').select('cliente_id').eq('stato', 'da-vedere'));
+    daVederePer = {};
+    for (const r of righe) daVederePer[r.cliente_id] = (daVederePer[r.cliente_id] || 0) + 1;
+  }
+  async function caricaDatiCliente() {
+    if (!clienteAttivo) { esercizi = []; videoPer = {}; messaggi = []; disegna(); return; }
+    const cid = clienteAttivo;
+    const [es, vi, me] = await Promise.all([
+      sb.from('esercizi').select('*').eq('cliente_id', cid).order('ordine'),
+      sb.from('video').select('*').eq('cliente_id', cid),
+      sb.from('messaggi').select('*').eq('cliente_id', cid).order('inviato_il').limit(500),
+    ]);
+    if (cid !== clienteAttivo) return;   // nel frattempo l'allenatore ha cambiato cliente
+    esercizi = ok(es); messaggi = ok(me);
+    videoPer = {}; for (const v of ok(vi)) videoPer[v.esercizio_id] = v;
+    disegna();
+  }
+  async function ricaricaVideo() {
+    const cid = clienteAttivo; if (!cid) return;
+    const righe = ok(await sb.from('video').select('*').eq('cliente_id', cid));
+    if (cid !== clienteAttivo) return;
+    videoPer = {}; for (const v of righe) videoPer[v.esercizio_id] = v;
+  }
+  async function ricaricaMessaggi() {
+    const cid = clienteAttivo; if (!cid) return;
+    const righe = ok(await sb.from('messaggi').select('*').eq('cliente_id', cid).order('inviato_il').limit(500));
+    if (cid === clienteAttivo) messaggi = righe;
+  }
+
+  // Aggiornamento dal vivo: video e messaggi nuovi arrivano senza ricaricare la pagina
+  let timerVivo;
+  function ascolta() {
+    if (canale) sb.removeChannel(canale);
+    const aggiorna = cosa => {
+      clearTimeout(timerVivo);
+      timerVivo = setTimeout(async () => {
+        try {
+          await Promise.all([cosa.video && ricaricaVideo(), cosa.chat && ricaricaMessaggi(), cosa.video && io.ruolo === 'coach' && contaDaVedere()]);
+          disegna();
+        } catch (e) { console.error(e); }
+      }, 250);
+    };
+    canale = sb.channel('area-' + io.id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'video' }, () => aggiorna({ video: true }))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messaggi' }, p => { if (p.new && p.new.cliente_id === clienteAttivo) aggiorna({ chat: true }); })
+      .subscribe();
+  }
+  // tornando sulla pagina (es. dal telefono in tasca) si riallinea tutto
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible' || !io || inModificaScheda) return;
+    try { if (io.ruolo === 'coach') await caricaClienti(); await caricaDatiCliente(); } catch (e) { console.error(e); }
+  });
 
   /* ===================== VIDEO ===================== */
   const inCaricamento = new Set();
-  const leggiDurata = file => new Promise(ok => {
+  const leggiDurata = file => new Promise(fine => {
     const v = document.createElement('video'), url = URL.createObjectURL(file);
-    const fine = d => { clearTimeout(t); URL.revokeObjectURL(url); ok(d); };
-    const t = setTimeout(() => fine(0), 5000);
+    const chiudi = d => { clearTimeout(t); URL.revokeObjectURL(url); fine(d); };
+    const t = setTimeout(() => chiudi(0), 5000);
     v.preload = 'metadata'; v.muted = true;
-    v.onloadedmetadata = () => fine(isFinite(v.duration) ? v.duration : 0);
-    v.onerror = () => fine(0);
+    v.onloadedmetadata = () => chiudi(isFinite(v.duration) ? v.duration : 0);
+    v.onerror = () => chiudi(0);
     v.src = url;
   });
-  const caricaVideo = async (idEs, file) => {
+  const tipoVideo = file => {
+    if ((file.type || '').startsWith('video/')) return file.type === 'video/x-m4v' ? 'video/mp4' : file.type;
+    const est = (file.name.split('.').pop() || '').toLowerCase();
+    return { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', '3gp': 'video/3gpp' }[est] || '';
+  };
+
+  async function caricaVideo(es, file) {
     if (!file) return;
-    if (!(file.type || '').startsWith('video/') && !/\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name)) { avvisa('Scegli un file video (.mp4 o .mov)'); return; }
-    if (file.size > 500e6) { avvisa('Il video è troppo pesante: massimo 500 MB'); return; }
-    inCaricamento.add(idEs); disegna();
-    const durata = await leggiDurata(file);
-    await archivioVideo.metti(idEs, file);
-    inCaricamento.delete(idEs);
-    modifica(s => {
-      s.video[idEs] = { nome: file.name, peso: file.size, durata, il: Date.now(), stato: 'da-vedere', commento: '' };
-      s.messaggi.push({ id: nuovoId(), tipo: 'evento', da: CLIENTE, testo: 'Pake ha caricato il video: ' + nomeEsercizio(idEs), il: Date.now() });
-    });
-    avvisa('Video inviato al coach');
-  };
+    const tipo = tipoVideo(file);
+    if (!['video/mp4', 'video/quicktime', 'video/webm', 'video/3gpp'].includes(tipo)) { avvisa('Scegli un video .mp4 o .mov'); return; }
+    if (file.size > MAX_VIDEO) { avvisa('Video troppo pesante (' + formattaPeso(file.size) + '): massimo 50 MB. Registra in 1080p e una clip più breve.'); return; }
+    inCaricamento.add(es.id); disegna();
+    try {
+      const durata = await leggiDurata(file);
+      const estensione = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/3gpp': '3gp' }[tipo];
+      const percorso = io.id + '/' + es.id + '-' + Date.now() + '.' + estensione;
+      ok(await sb.storage.from('video').upload(percorso, file, { contentType: tipo }));
+      const vecchio = videoPer[es.id];
+      ok(await sb.from('video').upsert({
+        esercizio_id: es.id, cliente_id: io.id, percorso, nome_file: file.name, peso: file.size, durata,
+        stato: 'da-vedere', commento: '', commentato_il: null, caricato_il: new Date().toISOString(),
+      }, { onConflict: 'esercizio_id' }));
+      if (vecchio && vecchio.percorso !== percorso) sb.storage.from('video').remove([vecchio.percorso]).catch(() => {});
+      await sb.from('messaggi').insert({ cliente_id: io.id, tipo: 'evento', testo: io.nome + ' ha caricato il video: ' + es.nome });
+      avvisa('Video inviato al tuo allenatore');
+    } catch (e) { errore(e, 'Caricamento video'); }
+    inCaricamento.delete(es.id);
+    await ricaricaVideo().catch(() => {}); await ricaricaMessaggi().catch(() => {});
+    disegna();
+  }
+
   const lettore = $('lettore'), video = $('lettore-video');
-  let urlInVisione = null;
-  const guarda = async (idEs, titolo) => {
-    const file = await archivioVideo.prendi(idEs);
-    if (!file) { avvisa('Questo video non è disponibile in questo browser'); return; }
-    if (urlInVisione) URL.revokeObjectURL(urlInVisione);
-    urlInVisione = URL.createObjectURL(file);
-    video.src = urlInVisione; $('lettore-titolo').textContent = titolo;
-    if (typeof lettore.showModal === 'function') lettore.showModal(); else lettore.setAttribute('open', '');
-    video.play().catch(() => {});
-  };
+  async function guarda(v, titolo) {
+    try {
+      const { signedUrl } = ok(await sb.storage.from('video').createSignedUrl(v.percorso, 3600));
+      video.src = signedUrl; $('lettore-titolo').textContent = titolo;
+      if (typeof lettore.showModal === 'function') lettore.showModal(); else lettore.setAttribute('open', '');
+      video.play().catch(() => {});
+    } catch (e) { errore(e, 'Video non disponibile'); }
+  }
   const chiudiLettore = () => { if (lettore.open) lettore.close(); };
   $('chiudi-lettore').addEventListener('click', chiudiLettore);
   lettore.addEventListener('click', e => { if (e.target === lettore) chiudiLettore(); });
-  lettore.addEventListener('close', () => {
-    video.pause(); video.removeAttribute('src'); video.load();
-    if (urlInVisione) { URL.revokeObjectURL(urlInVisione); urlInVisione = null; }
-  });
+  lettore.addEventListener('close', () => { video.pause(); video.removeAttribute('src'); video.load(); });
 
   /* ===================== VISTA CLIENTE ===================== */
-  const pulsanteCarica = (idEs, testo, secondario) => {
-    const input = crea('input', { type: 'file', accept: 'video/*', 'aria-label': testo + ': ' + nomeEsercizio(idEs) });
-    input.addEventListener('change', () => { caricaVideo(idEs, input.files && input.files[0]); input.value = ''; });
+  const pulsanteCarica = (es, testo, secondario) => {
+    const input = crea('input', { type: 'file', accept: 'video/*', 'aria-label': testo + ': ' + es.nome });
+    input.addEventListener('change', () => { caricaVideo(es, input.files && input.files[0]); input.value = ''; });
     return crea('span', { class: 'bottone piccolo carica' + (secondario ? ' secondario' : '') }, icona('carica'), testo, input);
   };
   const cellaEsercizio = (es, i) => crea('td', null,
     crea('div', { class: 'es' },
       crea('span', { class: 'num' }, String(i + 1).padStart(2, '0')),
       crea('span', { class: 'nome' }, es.nome),
-      crea('span', { class: 'nota' }, es.nota)));
+      es.nota ? crea('span', { class: 'nota' }, es.nota) : null));
+  const metaVideo = v => crea('span', { class: 'meta' }, [formattaDurata(v.durata), formattaPeso(v.peso), formattaOra(v.caricato_il)].filter(Boolean).join(' · '));
+  const nomeAllenatore = () => (allenatore && allenatore.nome) || 'Il tuo allenatore';
 
-  function disegnaCliente(stato) {
-    const corpo = $('righe-cliente'); corpo.replaceChildren();
-    ESERCIZI.forEach((es, i) => {
-      const v = stato.video[es.id];
+  function disegnaCliente() {
+    $('cli-occhiello').textContent = 'Ciao ' + (io.nome || '') + ' · Settimana ' + (io.settimana || 1);
+    const ob = $('cli-obiettivo'); ob.hidden = !io.obiettivo;
+    ob.replaceChildren('Obiettivo: ', crea('mark', null, io.obiettivo || ''));
+
+    const box = $('scheda-cliente');
+    if (!esercizi.length) {
+      box.replaceChildren(crea('div', { class: 'vuoto' }, crea('strong', null, 'La tua scheda è in preparazione.'), nomeAllenatore() + ' la caricherà qui a breve.'));
+      $('riepilogo-cliente').replaceChildren();
+      return;
+    }
+    const corpo = crea('tbody');
+    esercizi.forEach((es, i) => {
+      const v = videoPer[es.id];
       let contenuto;
       if (inCaricamento.has(es.id)) {
         contenuto = crea('div', { class: 'azioni meta' }, crea('span', { class: 'rotella', 'aria-hidden': 'true' }), 'Caricamento…');
       } else if (!v) {
-        contenuto = pulsanteCarica(es.id, 'Carica video');
+        contenuto = pulsanteCarica(es, 'Carica video');
       } else {
         const visto = v.stato === 'visto';
         contenuto = crea('div', { class: 'stato-video' },
           crea('span', { class: 'etichetta ' + (visto ? 'verde' : 'attesa') }, icona(visto ? 'spunta' : 'orologio'), visto ? 'Visto dal coach' : 'Inviato · da vedere'),
           crea('div', { class: 'azioni' },
-            crea('button', { type: 'button', class: 'bottone piccolo secondario', onclick: () => guarda(es.id, es.nome) }, icona('play'), 'Guarda'),
-            pulsanteCarica(es.id, 'Sostituisci', true)),
-          crea('span', { class: 'meta' }, [formattaDurata(v.durata), formattaPeso(v.peso), formattaOra(v.il)].filter(Boolean).join(' · ')));
+            crea('button', { type: 'button', class: 'bottone piccolo secondario', onclick: () => guarda(v, es.nome) }, icona('play'), 'Guarda'),
+            pulsanteCarica(es, 'Sostituisci', true)),
+          metaVideo(v));
       }
       const haCommento = v && v.stato === 'visto' && v.commento;
       corpo.append(crea('tr', { class: haCommento ? 'ha-commento' : null },
         cellaEsercizio(es, i),
-        crea('td', { class: 'dose', 'data-etichetta': 'Serie' }, es.serie),
-        crea('td', { class: 'dose', 'data-etichetta': 'Recupero' }, es.recupero),
+        crea('td', { class: 'dose', 'data-etichetta': 'Serie' }, es.serie || '—'),
+        crea('td', { class: 'dose', 'data-etichetta': 'Recupero' }, es.recupero || '—'),
         crea('td', { class: 'cella-video' }, contenuto)));
       if (haCommento) {
         corpo.append(crea('tr', { class: 'riga-commento' }, crea('td', { colspan: 4 },
           crea('div', { class: 'commento' },
-            crea('img', { src: 'img/team/alessandro.jpg', alt: '' }),
-            crea('div', null, crea('p', { class: 'chi' }, 'Alessandro · ' + formattaOra(v.commentatoIl || v.il)), crea('p', null, v.commento))))));
+            crea('span', { class: 'iniziale', 'aria-hidden': 'true' }, iniziale(nomeAllenatore())),
+            crea('div', null, crea('p', { class: 'chi' }, nomeAllenatore() + ' · ' + formattaOra(v.commentato_il || v.caricato_il)), crea('p', null, v.commento))))));
       }
     });
-    const inviati = ESERCIZI.filter(e => stato.video[e.id]).length;
-    const visti = ESERCIZI.filter(e => (stato.video[e.id] || {}).stato === 'visto').length;
+    box.replaceChildren(crea('table', { class: 'tabella' },
+      crea('thead', null, crea('tr', null, ['Esercizio', 'Serie × rip.', 'Recupero', 'Il tuo video'].map(t => crea('th', { scope: 'col' }, t)))), corpo));
+
+    const inviati = esercizi.filter(e => videoPer[e.id]).length;
+    const visti = esercizi.filter(e => (videoPer[e.id] || {}).stato === 'visto').length;
     $('riepilogo-cliente').replaceChildren(...[
-      crea('span', { class: 'etichetta' }, inviati + ' di ' + ESERCIZI.length + ' video inviati'),
+      crea('span', { class: 'etichetta' }, inviati + ' di ' + esercizi.length + ' video inviati'),
       visti ? crea('span', { class: 'etichetta verde' }, icona('spunta'), visti + (visti === 1 ? ' rivisto' : ' rivisti') + ' dal coach') : null].filter(Boolean));
   }
 
-  /* ===================== VISTA COACH ===================== */
-  const bozze = new Map();          // testi del feedback non ancora inviati (non si perdono se la pagina si aggiorna)
-  const inModifica = new Set();      // feedback già inviati che il coach sta correggendo
+  /* ===================== VISTA ALLENATORE ===================== */
+  const bozze = new Map();       // feedback non ancora inviati
+  const inModifica = new Set();  // feedback già inviati che l'allenatore sta correggendo
+  let inModificaScheda = false, bozzaScheda = null;
+  const clienteSel = () => clienti.find(c => c.id === clienteAttivo);
 
-  const inviaFeedback = idEs => {
-    const testo = (bozze.get(idEs) || '').trim();
-    modifica(s => {
-      const v = s.video[idEs]; if (!v) return;
-      const primaVolta = v.stato !== 'visto';
-      v.stato = 'visto'; v.commento = testo; v.commentatoIl = Date.now();
-      if (primaVolta || testo) s.messaggi.push({ id: nuovoId(), tipo: 'evento', da: COACH, il: Date.now(),
-        testo: (testo ? 'Alessandro ha commentato il video: ' : 'Alessandro ha visto il video: ') + nomeEsercizio(idEs) });
-    });
-    bozze.delete(idEs); inModifica.delete(idEs);
-    avvisa('Feedback inviato a Pake');
-  };
-
-  function disegnaCoach(stato) {
-    const corpo = $('righe-coach'), attivo = document.activeElement, idAttivo = attivo && attivo.dataset && attivo.dataset.feedback;
-    corpo.replaceChildren();
-    ESERCIZI.forEach((es, i) => {
-      const v = stato.video[es.id];
-      let cellaVideo, cellaFeedback;
-      if (!v) {
-        cellaVideo = crea('span', { class: 'in-attesa' }, 'Non ancora caricato');
-        cellaFeedback = crea('span', { class: 'in-attesa trattino' }, '—');
-      } else {
-        const visto = v.stato === 'visto';
-        cellaVideo = crea('div', { class: 'stato-video' },
-          crea('button', { type: 'button', class: 'bottone piccolo' + (visto ? ' secondario' : ''), onclick: () => guarda(es.id, 'Pake · ' + es.nome) }, icona('play'), 'Guarda il video'),
-          crea('span', { class: 'meta' }, [formattaDurata(v.durata), formattaPeso(v.peso), formattaOra(v.il)].filter(Boolean).join(' · ')),
-          crea('span', { class: 'etichetta ' + (visto ? 'verde' : 'attesa') }, icona(visto ? 'spunta' : 'orologio'), visto ? 'Visto' : 'Da vedere'));
-        if (visto && !inModifica.has(es.id)) {
-          cellaFeedback = crea('div', { class: 'feedback feedback-fatto' },
-            v.commento ? crea('p', null, v.commento) : crea('span', { class: 'in-attesa' }, 'Segnato come visto, senza commento'),
-            crea('button', { type: 'button', class: 'link-testo', style: 'justify-self:start',
-              onclick: () => { inModifica.add(es.id); bozze.set(es.id, v.commento || ''); disegna(); } }, 'Modifica'));
-        } else {
-          const area = crea('textarea', { 'data-feedback': es.id, rows: 2, placeholder: 'Scrivi a Pake cosa correggere…', 'aria-label': 'Feedback su ' + es.nome });
-          area.value = bozze.has(es.id) ? bozze.get(es.id) : '';
-          area.addEventListener('input', () => bozze.set(es.id, area.value));
-          area.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) inviaFeedback(es.id); });
-          cellaFeedback = crea('div', { class: 'feedback' }, area,
-            crea('div', { class: 'azioni' },
-              crea('button', { type: 'button', class: 'bottone piccolo', onclick: () => inviaFeedback(es.id) }, icona('spunta'), visto ? 'Salva' : 'Invia e segna come visto'),
-              visto ? crea('button', { type: 'button', class: 'link-testo', onclick: () => { inModifica.delete(es.id); bozze.delete(es.id); disegna(); } }, 'Annulla') : null));
-        }
-      }
-      corpo.append(crea('tr', null,
-        cellaEsercizio(es, i),
-        crea('td', { class: 'dose-coach', 'data-etichetta': 'Prescrizione' }, es.serie, crea('br'), crea('span', { class: 'meta' }, 'recupero ' + es.recupero)),
-        crea('td', { class: 'cella-video' }, cellaVideo),
-        crea('td', { class: 'cella-feedback' }, cellaFeedback)));
-    });
-    // rimette il cursore nel campo che il coach stava scrivendo
-    if (idAttivo) { const a = corpo.querySelector('[data-feedback="' + idAttivo + '"]'); if (a) { a.focus(); a.setSelectionRange(a.value.length, a.value.length); } }
-
-    const daVedere = ESERCIZI.filter(e => (stato.video[e.id] || {}).stato === 'da-vedere').length;
-    const caricati = ESERCIZI.filter(e => stato.video[e.id]).length;
-    $('riepilogo-coach').replaceChildren(
-      daVedere ? crea('span', { class: 'etichetta attesa' }, icona('orologio'), daVedere + ' video da vedere')
-        : caricati ? crea('span', { class: 'etichetta verde' }, icona('spunta'), 'Tutto rivisto')
-        : crea('span', { class: 'etichetta' }, 'In attesa dei video'),
-      crea('span', { class: 'etichetta' }, caricati + ' di ' + ESERCIZI.length + ' caricati'));
-    const conta = $('conta-pake'); conta.hidden = !daVedere; conta.textContent = daVedere;
+  function disegnaListaClienti() {
+    const nav = $('lista-clienti');
+    nav.replaceChildren(crea('p', { class: 'occhiello' }, 'I tuoi clienti'),
+      ...clienti.map(c => {
+        const n = daVederePer[c.id] || 0, attivo = c.id === clienteAttivo;
+        return crea('button', { type: 'button', class: 'cliente-voce' + (attivo ? ' attivo' : ''), 'aria-current': attivo ? 'true' : null,
+          onclick: () => scegliCliente(c.id) },
+          crea('span', { class: 'iniziale' }, iniziale(c.nome)),
+          crea('span', null, c.nome || 'Senza nome', crea('small', null, 'Settimana ' + (c.settimana || 1))),
+          n ? crea('span', { class: 'conta', title: n + ' video da vedere' }, n) : null);
+      }));
+  }
+  async function scegliCliente(id) {
+    if (id === clienteAttivo) return;
+    if (inModificaScheda && !confirm('Hai modifiche alla scheda non salvate. Vuoi lasciarle?')) return;
+    inModificaScheda = false; bozzaScheda = null; bozze.clear(); inModifica.clear();
+    clienteAttivo = id; contati.delete('chat-coach');
+    try { localStorage.setItem('mcm-cliente-attivo', id); } catch (e) {}
+    esercizi = []; videoPer = {}; messaggi = []; disegna();
+    try { await caricaDatiCliente(); } catch (e) { errore(e, 'Caricamento cliente'); }
   }
 
-  let confermaAzzera = false, timerAzzera;
-  $('azzera').addEventListener('click', async e => {
-    const b = e.currentTarget;
-    if (!confermaAzzera) {
-      confermaAzzera = true; b.textContent = 'Sicuro? Clicca di nuovo per cancellare video e chat';
-      clearTimeout(timerAzzera); timerAzzera = setTimeout(() => { confermaAzzera = false; b.textContent = 'Azzera la prova'; }, 4000);
+  const inviaFeedback = async (es, v) => {
+    const testo = (bozze.get(es.id) || '').trim(), primaVolta = v.stato !== 'visto';
+    try {
+      ok(await sb.from('video').update({ stato: 'visto', commento: testo, commentato_il: new Date().toISOString() }).eq('id', v.id));
+      if (primaVolta || testo) await sb.from('messaggi').insert({ cliente_id: clienteAttivo, tipo: 'evento',
+        testo: io.nome + (testo ? ' ha commentato il video: ' : ' ha visto il video: ') + es.nome });
+      bozze.delete(es.id); inModifica.delete(es.id);
+      avvisa('Feedback inviato');
+      await Promise.all([ricaricaVideo(), ricaricaMessaggi(), contaDaVedere()]);
+      disegna();
+    } catch (e) { errore(e, 'Feedback'); }
+  };
+
+  function disegnaCoach() {
+    disegnaListaClienti();
+    if (inModificaScheda) return;          // l'editor della scheda non si ridisegna mentre l'allenatore scrive
+    const box = $('dettaglio-coach'), c = clienteSel();
+    if (!c) {
+      box.replaceChildren(crea('div', { class: 'vuoto' }, crea('strong', null, 'Non hai ancora clienti assegnati.'),
+        'Assegnali dal pannello Supabase (colonna coach_id nella tabella profili), poi ricarica la pagina.'));
       return;
     }
-    confermaAzzera = false; b.textContent = 'Azzera la prova';
-    await archivioVideo.svuota(); bozze.clear(); inModifica.clear();
-    modifica(s => Object.assign(s, statoIniziale()));
-    avvisa('Prova azzerata');
-  });
+    const attivo = document.activeElement, idAttivo = attivo && attivo.dataset && attivo.dataset.feedback;
+    const testa = crea('div', { class: 'pannello-testa' },
+      crea('div', null, crea('p', { class: 'occhiello' }, 'Cliente · Progetto Autonomia'),
+        crea('h1', null, (c.nome || 'Cliente') + ', ', crea('em', null, 'settimana ' + (c.settimana || 1) + '.'))),
+      crea('div', { class: 'testa-azioni' },
+        crea('div', { class: 'riepilogo', id: 'riepilogo-coach' }),
+        crea('button', { type: 'button', class: 'bottone piccolo secondario', onclick: apriEditor }, icona('matita'), esercizi.length ? 'Modifica scheda' : 'Crea scheda')));
+    const parti = [testa];
+    if (c.obiettivo) parti.push(crea('p', { class: 'obiettivo' }, 'Obiettivo: ', crea('mark', null, c.obiettivo)));
+
+    if (!esercizi.length) {
+      parti.push(crea('div', { class: 'vuoto' }, crea('strong', null, 'Nessun esercizio nella scheda.'), 'Premi "Crea scheda" per preparare la settimana di ' + (c.nome || 'questo cliente') + '.'));
+    } else {
+      const corpo = crea('tbody');
+      esercizi.forEach((es, i) => {
+        const v = videoPer[es.id];
+        let cellaVideo, cellaFeedback;
+        if (!v) {
+          cellaVideo = crea('span', { class: 'in-attesa' }, 'Non ancora caricato');
+          cellaFeedback = crea('span', { class: 'in-attesa trattino' }, '—');
+        } else {
+          const visto = v.stato === 'visto';
+          cellaVideo = crea('div', { class: 'stato-video' },
+            crea('button', { type: 'button', class: 'bottone piccolo' + (visto ? ' secondario' : ''), onclick: () => guarda(v, (c.nome || '') + ' · ' + es.nome) }, icona('play'), 'Guarda il video'),
+            metaVideo(v),
+            crea('span', { class: 'etichetta ' + (visto ? 'verde' : 'attesa') }, icona(visto ? 'spunta' : 'orologio'), visto ? 'Visto' : 'Da vedere'));
+          if (visto && !inModifica.has(es.id)) {
+            cellaFeedback = crea('div', { class: 'feedback feedback-fatto' },
+              v.commento ? crea('p', null, v.commento) : crea('span', { class: 'in-attesa' }, 'Segnato come visto, senza commento'),
+              crea('button', { type: 'button', class: 'link-testo', style: 'justify-self:start',
+                onclick: () => { inModifica.add(es.id); bozze.set(es.id, v.commento || ''); disegna(); } }, 'Modifica'));
+          } else {
+            const area = crea('textarea', { 'data-feedback': es.id, rows: 2, placeholder: 'Scrivi a ' + (c.nome || 'il cliente') + ' cosa correggere…', 'aria-label': 'Feedback su ' + es.nome });
+            area.value = bozze.get(es.id) || '';
+            area.addEventListener('input', () => bozze.set(es.id, area.value));
+            area.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) inviaFeedback(es, v); });
+            cellaFeedback = crea('div', { class: 'feedback' }, area,
+              crea('div', { class: 'azioni' },
+                crea('button', { type: 'button', class: 'bottone piccolo', onclick: () => inviaFeedback(es, v) }, icona('spunta'), visto ? 'Salva' : 'Invia e segna come visto'),
+                visto ? crea('button', { type: 'button', class: 'link-testo', onclick: () => { inModifica.delete(es.id); bozze.delete(es.id); disegna(); } }, 'Annulla') : null));
+          }
+        }
+        corpo.append(crea('tr', null,
+          cellaEsercizio(es, i),
+          crea('td', { class: 'dose-coach', 'data-etichetta': 'Prescrizione' }, es.serie || '—', crea('br'), crea('span', { class: 'meta' }, 'recupero ' + (es.recupero || '—'))),
+          crea('td', { class: 'cella-video' }, cellaVideo),
+          crea('td', { class: 'cella-feedback' }, cellaFeedback)));
+      });
+      parti.push(crea('table', { class: 'tabella' },
+        crea('thead', null, crea('tr', null, ['Esercizio', 'Prescrizione', 'Video di ' + (c.nome || 'cliente'), 'Il tuo feedback'].map(t => crea('th', { scope: 'col' }, t)))), corpo));
+    }
+    box.replaceChildren(...parti);
+    if (idAttivo) { const a = box.querySelector('[data-feedback="' + idAttivo + '"]'); if (a) { a.focus(); a.setSelectionRange(a.value.length, a.value.length); } }
+
+    const daVedere = esercizi.filter(e => (videoPer[e.id] || {}).stato === 'da-vedere').length;
+    const caricati = esercizi.filter(e => videoPer[e.id]).length;
+    if (esercizi.length) $('riepilogo-coach').replaceChildren(
+      daVedere ? crea('span', { class: 'etichetta attesa' }, icona('orologio'), daVedere + ' da vedere')
+        : caricati ? crea('span', { class: 'etichetta verde' }, icona('spunta'), 'Tutto rivisto')
+        : crea('span', { class: 'etichetta' }, 'In attesa dei video'),
+      crea('span', { class: 'etichetta' }, caricati + ' di ' + esercizi.length + ' caricati'));
+  }
+
+  /* ---------- editor della scheda ---------- */
+  function apriEditor() {
+    const c = clienteSel(); if (!c) return;
+    bozzaScheda = {
+      settimana: c.settimana || 1, obiettivo: c.obiettivo || '',
+      righe: esercizi.map(e => ({ id: e.id, nome: e.nome, nota: e.nota, serie: e.serie, recupero: e.recupero })),
+    };
+    if (!bozzaScheda.righe.length) bozzaScheda.righe.push({ nome: '', nota: '', serie: '', recupero: '' });
+    inModificaScheda = true;
+    disegnaEditor();
+  }
+  function chiudiEditor() { inModificaScheda = false; bozzaScheda = null; disegna(); }
+
+  function disegnaEditor(fuoco) {
+    const c = clienteSel(), b = bozzaScheda, box = $('dettaglio-coach');
+    const campo = (etichetta, valore, salva, extra) => {
+      const input = crea(extra && extra.area ? 'textarea' : 'input', Object.assign({ value: valore ?? '' }, extra && extra.attr));
+      input.addEventListener('input', () => salva(input.value));
+      return crea('label', { class: 'campo' + (extra && extra.largo ? ' largo' : '') }, etichetta, input);
+    };
+    const righe = b.righe.map((r, i) => crea('li', { class: 'editor-riga' },
+      crea('span', { class: 'num' }, String(i + 1).padStart(2, '0')),
+      crea('div', { class: 'editor-campi' },
+        campo('Esercizio', r.nome, v => r.nome = v, { attr: { placeholder: 'es. Squat al muro', 'data-riga': i } }),
+        campo('Serie × rip.', r.serie, v => r.serie = v, { attr: { placeholder: 'es. 3 × 10' } }),
+        campo('Recupero', r.recupero, v => r.recupero = v, { attr: { placeholder: 'es. 60"' } }),
+        campo('Nota per il cliente', r.nota, v => r.nota = v, { largo: true, attr: { placeholder: 'es. Schiena appoggiata, ginocchia in linea con i piedi' } })),
+      crea('div', { class: 'editor-tasti' },
+        crea('button', { type: 'button', class: 'tasto', title: 'Sposta su', 'aria-label': 'Sposta su', disabled: i === 0,
+          onclick: () => { [b.righe[i - 1], b.righe[i]] = [b.righe[i], b.righe[i - 1]]; disegnaEditor(); } }, '↑'),
+        crea('button', { type: 'button', class: 'tasto', title: 'Sposta giù', 'aria-label': 'Sposta giù', disabled: i === b.righe.length - 1,
+          onclick: () => { [b.righe[i + 1], b.righe[i]] = [b.righe[i], b.righe[i + 1]]; disegnaEditor(); } }, '↓'),
+        crea('button', { type: 'button', class: 'tasto elimina', title: 'Elimina', 'aria-label': 'Elimina esercizio',
+          onclick: () => {
+            if (r.id && videoPer[r.id] && !confirm('Questo esercizio ha un video caricato: eliminandolo si cancella anche il video. Continuare?')) return;
+            b.righe.splice(i, 1); disegnaEditor();
+          } }, '✕'))));
+
+    box.replaceChildren(crea('div', { class: 'editor' },
+      crea('div', { class: 'pannello-testa' },
+        crea('div', null, crea('p', { class: 'occhiello' }, 'Modifica scheda'),
+          crea('h1', null, (c.nome || 'Cliente') + ', ', crea('em', null, 'la sua scheda.')))),
+      crea('div', { class: 'editor-generale' },
+        campo('Settimana', b.settimana, v => b.settimana = v, { attr: { type: 'number', min: 1, max: 520, inputmode: 'numeric' } }),
+        campo('Obiettivo', b.obiettivo, v => b.obiettivo = v, { attr: { placeholder: 'es. salire le scale senza fiatone' } })),
+      crea('ol', { class: 'editor-righe' }, righe),
+      crea('div', { class: 'editor-fondo' },
+        crea('button', { type: 'button', class: 'bottone piccolo secondario',
+          onclick: () => { b.righe.push({ nome: '', nota: '', serie: '', recupero: '' }); disegnaEditor(b.righe.length - 1); } }, '+ Aggiungi esercizio'),
+        crea('div', { class: 'azioni' },
+          crea('button', { type: 'button', class: 'link-testo', onclick: () => { if (confirm('Lasciare le modifiche senza salvarle?')) chiudiEditor(); } }, 'Annulla'),
+          crea('button', { type: 'button', class: 'bottone', id: 'salva-scheda', onclick: salvaScheda }, icona('spunta'), 'Salva scheda')))));
+    if (fuoco != null) { const el = box.querySelector('[data-riga="' + fuoco + '"]'); if (el) el.focus(); }
+  }
+
+  async function salvaScheda() {
+    const c = clienteSel(), b = bozzaScheda;
+    const righe = b.righe.map(r => ({ ...r, nome: (r.nome || '').trim(), nota: (r.nota || '').trim(), serie: (r.serie || '').trim(), recupero: (r.recupero || '').trim() }))
+      .filter(r => r.nome || r.serie || r.nota);
+    if (righe.some(r => !r.nome)) { avvisa('Ogni esercizio deve avere un nome'); return; }
+    const settimana = Math.max(1, parseInt(b.settimana, 10) || 1);
+    const bottone = $('salva-scheda'); bottone.disabled = true;
+    try {
+      // esercizi tolti: prima i loro file video, poi le righe (il video nel database si cancella da solo)
+      const tenuti = new Set(righe.filter(r => r.id).map(r => r.id));
+      const tolti = esercizi.filter(e => !tenuti.has(e.id));
+      if (tolti.length) {
+        const file = tolti.map(e => videoPer[e.id] && videoPer[e.id].percorso).filter(Boolean);
+        if (file.length) await sb.storage.from('video').remove(file);
+        ok(await sb.from('esercizi').delete().in('id', tolti.map(e => e.id)));
+      }
+      for (const [i, r] of righe.entries()) {
+        const riga = { nome: r.nome, nota: r.nota, serie: r.serie, recupero: r.recupero, ordine: i + 1 };
+        if (r.id) ok(await sb.from('esercizi').update(riga).eq('id', r.id));
+        else ok(await sb.from('esercizi').insert({ ...riga, cliente_id: c.id }));
+      }
+      ok(await sb.from('profili').update({ settimana, obiettivo: (b.obiettivo || '').trim() }).eq('id', c.id));
+      inModificaScheda = false; bozzaScheda = null;
+      await caricaClienti(); await caricaDatiCliente();
+      avvisa('Scheda salvata: ' + (c.nome || 'il cliente') + ' la vede già');
+    } catch (e) {
+      bottone.disabled = false;
+      errore(e, 'Salvataggio scheda');
+    }
+  }
 
   /* ===================== CHAT ===================== */
   const contati = new Map();   // quanti messaggi c'erano all'ultimo disegno (per animare solo i nuovi)
-  function costruisciChat(box, io, altro) {
-    if (box.dataset.pronta === io) return;
-    box.dataset.pronta = io;
-    const coach = altro === COACH;
-    const avatar = coach ? crea('img', { src: 'img/team/alessandro.jpg', alt: '' }) : crea('span', { class: 'iniziale', 'aria-hidden': 'true' }, 'P');
-    const area = crea('textarea', { rows: 1, placeholder: 'Scrivi un messaggio…', 'aria-label': 'Messaggio per ' + UTENTI[altro].nome });
+  function costruisciChat(box, chiave, nomeAltro, sottotitolo) {
+    if (box.dataset.pronta === chiave) return;
+    box.dataset.pronta = chiave;
+    const area = crea('textarea', { rows: 1, placeholder: 'Scrivi un messaggio…', 'aria-label': 'Messaggio per ' + nomeAltro });
     const invia = crea('button', { type: 'submit', class: 'invia', 'aria-label': 'Invia', disabled: true, svg: ICONE.invia });
     const adatta = () => { area.style.height = 'auto'; area.style.height = Math.min(area.scrollHeight, 140) + 'px'; invia.disabled = !area.value.trim(); };
     area.addEventListener('input', adatta);
     area.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); modulo.requestSubmit(); } });
     const modulo = crea('form', { class: 'chat-scrivi' }, area, invia);
-    modulo.addEventListener('submit', e => {
+    modulo.addEventListener('submit', async e => {
       e.preventDefault();
-      const testo = area.value.trim(); if (!testo) return;
+      const testo = area.value.trim(); if (!testo || !clienteAttivo) return;
       area.value = ''; adatta();
-      modifica(s => s.messaggi.push({ id: nuovoId(), da: io, testo, il: Date.now() }));
+      const cid = clienteAttivo;
+      messaggi.push({ id: 'attesa-' + Date.now(), cliente_id: cid, autore_id: io.id, tipo: 'testo', testo, inviato_il: new Date().toISOString() });
+      disegna();
+      try { ok(await sb.from('messaggi').insert({ cliente_id: cid, testo })); await ricaricaMessaggi(); disegna(); }
+      catch (err) { area.value = testo; adatta(); await ricaricaMessaggi().catch(() => {}); disegna(); errore(err, 'Messaggio non inviato'); }
       area.focus();
     });
     box.replaceChildren(
-      crea('div', { class: 'chat-testa' }, avatar,
-        crea('div', null, crea('strong', null, UTENTI[altro].nome),
-          crea('small', null, crea('span', { class: 'pallino' }), coach ? 'Il tuo coach' : 'Cliente · Progetto Autonomia'))),
+      crea('div', { class: 'chat-testa' }, crea('span', { class: 'iniziale grande', 'aria-hidden': 'true' }, iniziale(nomeAltro)),
+        crea('div', null, crea('strong', null, nomeAltro), crea('small', null, crea('span', { class: 'pallino' }), sottotitolo))),
       crea('ol', { class: 'messaggi', 'aria-live': 'polite', 'aria-label': 'Messaggi' }),
       modulo);
   }
-  function disegnaChat(box, io, altro, stato) {
-    costruisciChat(box, io, altro);
+  function disegnaChat(box, nomeAltro, sottotitolo) {
+    costruisciChat(box, clienteAttivo + '|' + nomeAltro, nomeAltro, sottotitolo);
     const lista = box.querySelector('.messaggi');
     const vicinoAlFondo = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 80;
-    const prima = contati.get(box.id) ?? stato.messaggi.length;
+    const prima = contati.get(box.id) ?? messaggi.length;
     lista.replaceChildren();
-    if (!stato.messaggi.length) lista.append(crea('li', { class: 'chat-vuota' }, 'Nessun messaggio. Scrivi tu per primo!'));
-    stato.messaggi.forEach((m, i) => {
-      const classi = ['msg', m.tipo === 'evento' ? 'evento' : (m.da === io ? 'mio' : ''), i >= prima ? 'nuovo' : ''].filter(Boolean).join(' ');
+    if (!messaggi.length) lista.append(crea('li', { class: 'chat-vuota' }, 'Nessun messaggio. Scrivi tu per primo!'));
+    messaggi.forEach((m, i) => {
+      const classi = ['msg', m.tipo === 'evento' ? 'evento' : (m.autore_id === io.id ? 'mio' : ''), i >= prima ? 'nuovo' : ''].filter(Boolean).join(' ');
       lista.append(crea('li', { class: classi },
         crea('div', { class: 'fumetto' }, m.testo),
-        crea('time', { datetime: new Date(m.il).toISOString() }, formattaOra(m.il))));
+        crea('time', { datetime: m.inviato_il }, formattaOra(m.inviato_il))));
     });
-    const ultimoMio = stato.messaggi.length > prima && stato.messaggi[stato.messaggi.length - 1].da === io;
+    const ultimoMio = messaggi.length > prima && messaggi[messaggi.length - 1].autore_id === io.id;
     if (vicinoAlFondo || ultimoMio || !contati.has(box.id)) lista.scrollTop = lista.scrollHeight;
-    contati.set(box.id, stato.messaggi.length);
+    contati.set(box.id, messaggi.length);
   }
 
   /* ===================== DISEGNO GENERALE ===================== */
   function disegna() {
-    const nome = sessione.leggi(), utente = UTENTI[nome];
-    const vista = utente ? utente.ruolo : 'login';
-    document.body.dataset.vista = vista;
-    $('vista-login').hidden = vista !== 'login';
-    $('vista-cliente').hidden = vista !== 'cliente';
-    $('vista-coach').hidden = vista !== 'coach';
-    $('orologio').hidden = !!utente;
-    $('utente').hidden = !utente;
-    if (!utente) { contati.clear(); return; }
-    $('utente-nome').textContent = utente.nome;
-    $('utente-ruolo').textContent = '· ' + utente.ruoloTesto;
-    document.title = (vista === 'coach' ? 'Area coach' : 'La tua scheda') + ' | Muoversi con Me';
-    const stato = leggiStato();
-    if (vista === 'cliente') { disegnaCliente(stato); disegnaChat($('chat-cliente'), CLIENTE, COACH, stato); }
-    else { disegnaCoach(stato); disegnaChat($('chat-coach'), COACH, CLIENTE, stato); }
+    if (!io) return;
+    if (io.ruolo === 'coach') {
+      disegnaCoach();
+      const c = clienteSel();
+      $('chat-coach').hidden = !c;
+      if (c) disegnaChat($('chat-coach'), c.nome || 'Cliente', 'Cliente · Settimana ' + (c.settimana || 1));
+    } else {
+      disegnaCliente();
+      disegnaChat($('chat-cliente'), nomeAllenatore(), 'Il tuo allenatore');
+    }
   }
 
-  // Aggiornamento dal vivo: se in un'altra scheda il cliente carica un video o scrive, questa si aggiorna da sola
-  window.addEventListener('storage', e => { if (e.key === CHIAVE) disegna(); });
-  if (canale) canale.onmessage = () => disegna();
-
-  // Prima apertura: salva i messaggi di benvenuto
-  try { if (!localStorage.getItem(CHIAVE)) salvaStato(statoIniziale()); } catch (e) {}
-  disegna();
+  // Avvio: se l'utente era già entrato, riapre direttamente la sua area
+  sb.auth.getSession().then(({ data: { session } }) => session ? entra() : mostraVista('login'));
+  sb.auth.onAuthStateChange(evento => { if (evento === 'SIGNED_OUT' && io) esci(); });
   </script>
 </body>
 </html>
