@@ -486,6 +486,7 @@
 
   function esci() {
     if (canale) { sb.removeChannel(canale); canale = null; }
+    clearTimeout(timerControllo);
     io = allenatore = clienteAttivo = null; clienti = []; esercizi = []; videoPer = {}; messaggi = [];
     inModificaScheda = false; bozze.clear(); inModifica.clear(); contati.clear();
     for (const box of [$('chat-cliente'), $('chat-coach')]) { box.replaceChildren(); delete box.dataset.pronta; }
@@ -511,7 +512,7 @@
       }
       mostraVista(io.ruolo === 'coach' ? 'coach' : 'cliente');
       await caricaDatiCliente();
-      ascolta();
+      await ascolta();
       window.scrollTo(0, 0);
     } catch (e) {
       errore(e, 'Caricamento');
@@ -555,9 +556,12 @@
   }
 
   // Aggiornamento dal vivo: video e messaggi nuovi arrivano senza ricaricare la pagina
-  let timerVivo;
-  function ascolta() {
+  let timerVivo, timerControllo, vivoAttivo = false;
+  async function ascolta() {
     if (canale) sb.removeChannel(canale);
+    vivoAttivo = false;
+    // il collegamento dal vivo deve sapere chi sono, altrimenti le regole di accesso non lasciano passare nulla
+    try { const { data: { session } } = await sb.auth.getSession(); if (session) sb.realtime.setAuth(session.access_token); } catch (e) {}
     const aggiorna = cosa => {
       clearTimeout(timerVivo);
       timerVivo = setTimeout(async () => {
@@ -570,7 +574,31 @@
     canale = sb.channel('area-' + io.id)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'video' }, () => aggiorna({ video: true }))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messaggi' }, p => { if (p.new && p.new.cliente_id === clienteAttivo) aggiorna({ chat: true }); })
-      .subscribe();
+      .subscribe(stato => {
+        vivoAttivo = stato === 'SUBSCRIBED';
+        console.info('Aggiornamento dal vivo:', stato);
+      });
+
+    // Rete di sicurezza: controlla comunque i messaggi nuovi ogni pochi secondi
+    // (ogni 4" se il collegamento dal vivo non va, ogni 20" se va)
+    clearTimeout(timerControllo);
+    let ultimoControllo = Date.now();
+    const controlla = async () => {
+      if (!io) return;
+      const intervallo = vivoAttivo ? 20000 : 4000;
+      if (document.visibilityState === 'visible' && Date.now() - ultimoControllo >= intervallo) {
+        ultimoControllo = Date.now();
+        try {
+          const firma = () => messaggi.length + '|' + JSON.stringify(Object.values(videoPer).map(v => v.id + v.stato + v.caricato_il)) + '|' + JSON.stringify(daVederePer);
+          const prima = firma();
+          await Promise.all([ricaricaMessaggi(), ricaricaVideo(), io.ruolo === 'coach' && contaDaVedere()]);
+          const dopo = firma();
+          if (prima !== dopo) disegna();
+        } catch (e) { console.error(e); }
+      }
+      timerControllo = setTimeout(controlla, 2000);
+    };
+    timerControllo = setTimeout(controlla, 2000);
   }
   // tornando sulla pagina (es. dal telefono in tasca) si riallinea tutto
   document.addEventListener('visibilitychange', async () => {
